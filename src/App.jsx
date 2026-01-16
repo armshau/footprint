@@ -138,11 +138,13 @@ function App() {
   };
 
   return (
-    <div className="container">
-      <h1>Ghost Leg (Amidakuji)</h1>
+    <main className="container">
+      <header>
+        <h1>Ghost Leg (Amidakuji)</h1>
+      </header>
 
       {step === 'setup' && (
-        <div className="setup-panel">
+        <section className="setup-panel">
           <div style={{ gridColumn: '1 / -1', marginBottom: '20px' }}>
             <label>Number of Players: </label>
             <input
@@ -181,11 +183,11 @@ function App() {
           <div style={{ gridColumn: '1 / -1', marginTop: '20px' }}>
             <button onClick={startGame}>Generate Game</button>
           </div>
-        </div>
+        </section>
       )}
 
       {step === 'game' && gameData && (
-        <div className="game-board">
+        <section className="game-board">
           <div style={{ marginBottom: '40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
               {playerQueue.length > 0 ? (
@@ -215,9 +217,9 @@ function App() {
           <div className="result-display">
             {lastResult}
           </div>
-        </div>
+        </section>
       )}
-    </div>
+    </main>
   );
 }
 
