@@ -139,8 +139,29 @@ function App() {
 
   return (
     <main className="container">
-      <header>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <h1>Ghost Leg (Amidakuji)</h1>
+        <a
+          href="https://buymeacoffee.com/tankhuang"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-block',
+            padding: '8px 16px',
+            backgroundColor: '#FFDD00',
+            color: '#000000',
+            textDecoration: 'none',
+            borderRadius: '20px',
+            fontWeight: 'bold',
+            fontSize: '14px',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+            transition: 'transform 0.2s'
+          }}
+          onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+          onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+        >
+          ☕ Buy me a coffee
+        </a>
       </header>
 
       {step === 'setup' && (
