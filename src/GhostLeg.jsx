@@ -1,360 +1,171 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { calculatePath, getPlayerColor, getPointAlongPath, hasBridgeConflict } from './gameLogic';
 
-import React, { useEffect, useState, useRef } from 'react';
+const CANVAS_HEIGHT = 430;
+const MIN_WIDTH = 600;
 
-const GhostLeg = ({ playerCount, bridges, height, prizes, assignments, onLaneSelect, onFinish }) => {
-    const [activePlayer, setActivePlayer] = useState(null);
-    const [path, setPath] = useState([]);
-    const [animationProgress, setAnimationProgress] = useState(0);
-    const [completedPaths, setCompletedPaths] = useState({}); // Store { colIndex: path }
-    const requestRef = useRef();
-    const prevAssignmentsRef = useRef({});
+function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChange, onLaneSelect, onFinish }) {
+  const { playerCount, bridges, height } = gameData;
+  const width = Math.max(MIN_WIDTH, playerCount * 76);
+  const colWidth = width / (playerCount + 1);
+  const rowHeight = CANVAS_HEIGHT / height;
+  const [userBridges, setUserBridges] = useState([]);
+  const [activePlayer, setActivePlayer] = useState(null);
+  const [path, setPath] = useState([]);
+  const [animationProgress, setAnimationProgress] = useState(0);
+  const [completedPaths, setCompletedPaths] = useState({});
+  const requestRef = useRef(null);
+  const previousAssignmentsRef = useRef({});
+  const svgRef = useRef(null);
 
-    const [userBridges, setUserBridges] = useState([]);
+  const allBridges = useMemo(() => [...bridges, ...userBridges].sort((a, b) => a.row - b.row), [bridges, userBridges]);
 
-    // Reset user bridges when game data changes
-    useEffect(() => {
-        setUserBridges([]);
-    }, [bridges]);
+  useEffect(() => {
+    setUserBridges([]);
+    setCompletedPaths({});
+    previousAssignmentsRef.current = {};
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [bridges]);
 
-    // Merge and sort all bridges
-    const allBridges = [...bridges, ...userBridges].sort((a, b) => a.row - b.row);
+  const finishPath = (columnIndex, points, endCol) => {
+    setAnimationProgress(1);
+    setCompletedPaths((current) => ({ ...current, [columnIndex]: { points, endCol } }));
+    setActivePlayer(null);
+    onFinish(assignments[columnIndex], prizes[endCol], endCol);
+  };
 
-    // Dynamic width calculation
-    const minWidth = 600;
-    const width = Math.max(minWidth, playerCount * 50);
+  const startAnimation = (columnIndex) => {
+    if (isAnimating) return;
+    cancelAnimationFrame(requestRef.current);
+    const result = calculatePath({ startCol: columnIndex, bridges: allBridges, colWidth, rowHeight, canvasHeight: CANVAS_HEIGHT });
+    setCompletedPaths((current) => {
+      const next = { ...current };
+      delete next[columnIndex];
+      return next;
+    });
+    setPath(result.points);
+    setActivePlayer(columnIndex);
+    setAnimationProgress(0);
+    onAnimationChange(true);
 
-    const canvasHeight = 400;
-    const colWidth = width / (playerCount + 1);
-    const rowHeight = canvasHeight / height;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finishPath(columnIndex, result.points, result.endCol);
+      return;
+    }
 
-    // Distinct colors for players
-    const getPlayerColor = (index) => {
-        const colors = [
-            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
-            '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB',
-            '#E74C3C', '#2ECC71', '#F1C40F', '#E67E22'
-        ];
-        return colors[index % colors.length];
+    const startTime = performance.now();
+    const animate = (time) => {
+      const progress = Math.min((time - startTime) / 1900, 1);
+      setAnimationProgress(progress);
+      if (progress < 1) requestRef.current = requestAnimationFrame(animate);
+      else finishPath(columnIndex, result.points, result.endCol);
     };
+    requestRef.current = requestAnimationFrame(animate);
+  };
 
-    // Watch for new assignments to trigger animation
-    useEffect(() => {
-        const prev = prevAssignmentsRef.current;
-        Object.keys(assignments).forEach(colKey => {
-            const colIdx = parseInt(colKey);
-            if (!prev[colKey]) {
-                // New assignment! Start animation
-                startAnimation(colIdx);
-            }
-        });
-        prevAssignmentsRef.current = assignments;
-    }, [assignments]);
+  useEffect(() => {
+    const previous = previousAssignmentsRef.current;
+    const newColumn = Object.keys(assignments).find((key) => !previous[key]);
+    previousAssignmentsRef.current = assignments;
+    if (newColumn !== undefined) startAnimation(Number(newColumn));
+    // Animation intentionally starts only when a new assignment arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignments]);
 
-    // Calculate path for a specific start column
-    const calculatePath = (startCol) => {
-        let currentCol = startCol;
-        const pathPoints = [{ x: (currentCol + 1) * colWidth, y: 0 }];
+  const handleLaneClick = (columnIndex) => {
+    if (assignments[columnIndex]) startAnimation(columnIndex);
+    else onLaneSelect(columnIndex);
+  };
 
-        let currentY = 0;
+  const handleStageClick = (event) => {
+    if (isAnimating || !svgRef.current) return;
+    const point = svgRef.current.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const matrix = svgRef.current.getScreenCTM();
+    if (!matrix) return;
+    const svgPoint = point.matrixTransform(matrix.inverse());
+    if (svgPoint.y <= 0 || svgPoint.y >= CANVAS_HEIGHT) return;
 
-        for (let b of allBridges) {
-            if (b.row > currentY) {
-                if (b.col === currentCol) {
-                    // Bridge to the right
-                    pathPoints.push({ x: (currentCol + 1) * colWidth, y: b.row * rowHeight });
-                    pathPoints.push({ x: (currentCol + 2) * colWidth, y: b.row * rowHeight });
-                    currentCol++;
-                    currentY = b.row;
-                } else if (b.col === currentCol - 1) {
-                    // Bridge to the left
-                    pathPoints.push({ x: (currentCol + 1) * colWidth, y: b.row * rowHeight });
-                    pathPoints.push({ x: currentCol * colWidth, y: b.row * rowHeight });
-                    currentCol--;
-                    currentY = b.row;
-                }
-            }
-        }
+    const column = Math.floor(svgPoint.x / colWidth) - 1;
+    if (column < 0 || column >= playerCount - 1) return;
+    const lineX = (column + 1) * colWidth;
+    if (svgPoint.x - lineX < 12 || svgPoint.x - lineX > colWidth - 12) return;
 
-        pathPoints.push({ x: (currentCol + 1) * colWidth, y: canvasHeight });
+    const candidate = { col: column, row: Math.round(svgPoint.y / rowHeight) };
+    if (!hasBridgeConflict(allBridges, candidate, 0)) setUserBridges((current) => [...current, candidate]);
+  };
 
-        return { points: pathPoints, endCol: currentCol };
-    };
+  const { position, trail } = activePlayer === null
+    ? { position: { x: 0, y: 0 }, trail: [] }
+    : getPointAlongPath(path, animationProgress);
 
-    const startAnimation = (colIndex) => {
-        // If already animating this specific column, ignore?
-        // Actually activePlayer is single, so we can only animate one at a time.
-        // But if multiple assignments come in at once, we might have an issue.
-        // For now assume sequential or just override.
+  return (
+    <div className="ghost-leg">
+      <div className="board-toolbar">
+        <div><span className="toolbar-dot" aria-hidden="true" />點兩條直線之間，可以加一條自訂橫線。</div>
+        {userBridges.length > 0 && <button type="button" className="text-button" onClick={() => setUserBridges([])} disabled={isAnimating}>清除自訂線 ({userBridges.length})</button>}
+      </div>
 
-        // Clear existing path for this column if re-running
-        setCompletedPaths(prev => {
-            const next = { ...prev };
-            delete next[colIndex];
-            return next;
-        });
-
-        const { points, endCol } = calculatePath(colIndex);
-        setPath(points);
-        setActivePlayer(colIndex);
-        setAnimationProgress(0);
-
-        const duration = 2000; // 2 seconds
-        const startTime = performance.now();
-
-        const animate = (time) => {
-            const elapsed = time - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            setAnimationProgress(progress);
-
-            if (progress < 1) {
-                requestRef.current = requestAnimationFrame(animate);
-            } else {
-                // Animation finished
-                setCompletedPaths(prev => ({
-                    ...prev,
-                    [colIndex]: { points, endCol }
-                }));
-                setActivePlayer(null);
-                if (onFinish) onFinish(assignments[colIndex], prizes[endCol]);
-            }
-        };
-
-        requestRef.current = requestAnimationFrame(animate);
-    };
-
-    const handleColumnClick = (i) => {
-        if (assignments[i]) {
-            // Replay
-            startAnimation(i);
-        } else {
-            // Select
-            if (onLaneSelect) onLaneSelect(i);
-        }
-    };
-
-    const handleAddBridge = (col, y) => {
-        // Calculate row index
-        const row = Math.round(y / rowHeight);
-
-        // Validation: Check bounds
-        if (row <= 0 || row >= height) return;
-
-        // Validation: Check conflicts
-        // Cannot have bridge at same row/col
-        // Cannot have bridge at same row/col-1 (left neighbor overlap)
-        // Cannot have bridge at same row/col+1 (right neighbor overlap)
-        const conflict = allBridges.some(b =>
-            b.row === row && (b.col === col || b.col === col - 1 || b.col === col + 1)
-        );
-
-        if (!conflict) {
-            setUserBridges(prev => [...prev, { col, row }]);
-        }
-    };
-
-    // Helper to get current position and trail
-    const getCurrentState = () => {
-        if (!path.length) return { pos: { x: 0, y: 0 }, trail: [] };
-
-        const totalDist = path.reduce((acc, pt, i) => {
-            if (i === 0) return 0;
-            const prev = path[i - 1];
-            return acc + Math.hypot(pt.x - prev.x, pt.y - prev.y);
-        }, 0);
-
-        const targetDist = totalDist * animationProgress;
-        let currentDist = 0;
-        const trail = [path[0]]; // Start with first point
-
-        for (let i = 1; i < path.length; i++) {
-            const prev = path[i - 1];
-            const pt = path[i];
-            const segDist = Math.hypot(pt.x - prev.x, pt.y - prev.y);
-
-            if (currentDist + segDist >= targetDist) {
-                // We are in this segment
-                const segProgress = (targetDist - currentDist) / segDist;
-                const currentPos = {
-                    x: prev.x + (pt.x - prev.x) * segProgress,
-                    y: prev.y + (pt.y - prev.y) * segProgress
-                };
-                trail.push(currentPos);
-                return { pos: currentPos, trail };
-            }
-
-            trail.push(pt); // Add full segment point
-            currentDist += segDist;
-        }
-        return { pos: path[path.length - 1], trail: path };
-    };
-
-    const { pos: currentPos, trail: currentTrail } = activePlayer !== null ? getCurrentState() : { pos: { x: 0, y: 0 }, trail: [] };
-
-    return (
-        <div className="ghost-leg-container" style={{ overflowX: 'auto', maxWidth: '100%' }}>
-            <div style={{ textAlign: 'center', marginBottom: '10px', color: '#666', fontSize: '0.9em' }}>
-                <small>💡 Click between lines to add custom bridges!</small>
-                {userBridges.length > 0 && (
-                    <button
-                        onClick={() => setUserBridges([])}
-                        style={{ marginLeft: '10px', padding: '2px 6px', fontSize: '0.8em' }}
-                    >
-                        Reset Custom Lines
-                    </button>
-                )}
-            </div>
-            <svg
-                width={width}
-                height={canvasHeight + 250}
-                viewBox={`0 -40 ${width} ${canvasHeight + 250}`}
-                style={{ overflow: 'visible' }}
-            >
-                {/* Click Zones for Adding Bridges */}
-                {Array.from({ length: playerCount - 1 }).map((_, i) => (
-                    <rect
-                        key={`zone-${i}`}
-                        x={(i + 1) * colWidth + 10} // Offset slightly to avoid clicking the line itself
-                        y={0}
-                        width={colWidth - 20}
-                        height={canvasHeight}
-                        fill="transparent"
-                        style={{ cursor: 'crosshair' }}
-                        onClick={(e) => {
-                            const rect = e.target.getBoundingClientRect();
-                            const y = e.clientY - rect.top;
-                            // Adjust y for viewBox scaling if necessary, but here 1:1 mostly
-                            // Actually SVG scaling might apply.
-                            // Better to use nativeEvent.offsetY if possible or relative calc.
-                            // Since SVG might be scaled, let's use the SVG coordinate system.
-                            // But for simplicity, let's assume no zoom for now or use relative.
-                            // e.nativeEvent.offsetY gives coord relative to target element.
-                            handleAddBridge(i, y);
-                        }}
-                    />
-                ))}
-
-                {/* Vertical Lines */}
-                {Array.from({ length: playerCount }).map((_, i) => {
-                    const isCompleted = !!completedPaths[i];
-                    const winnerStartCol = Object.keys(completedPaths).find(key => completedPaths[key].endCol === i);
-                    const winnerColor = winnerStartCol ? getPlayerColor(parseInt(winnerStartCol)) : "#aaa";
-
-                    return (
-                        <g key={`line-${i}`}>
-                            <line
-                                x1={(i + 1) * colWidth}
-                                y1={0}
-                                x2={(i + 1) * colWidth}
-                                y2={canvasHeight}
-                                stroke="#444"
-                                strokeWidth="2"
-                                style={{ pointerEvents: 'none' }} // Let clicks pass through to zones if needed
-                            />
-                            {/* Player Name or Number */}
-                            <text
-                                x={(i + 1) * colWidth}
-                                y={-20}
-                                textAnchor="middle"
-                                fill={assignments[i] ? getPlayerColor(i) : "#aaa"}
-                                style={{ cursor: 'pointer', fontWeight: assignments[i] ? 'bold' : 'normal' }}
-                                fontSize="14"
-                                onClick={() => handleColumnClick(i)}
-                            >
-                                {assignments[i] ? (isCompleted ? `✓ ${i + 1}.${assignments[i]}` : `${i + 1}.${assignments[i]}`) : `${i + 1}`}
-                            </text>
-                            {/* Start Button (Circle) */}
-                            <circle
-                                cx={(i + 1) * colWidth}
-                                cy={0}
-                                r={6}
-                                fill={activePlayer === i ? getPlayerColor(i) : (assignments[i] ? getPlayerColor(i) : "#888")}
-                                style={{ cursor: 'pointer' }}
-                                onClick={() => handleColumnClick(i)}
-                            />
-                            {/* Prize Name */}
-                            <text
-                                x={(i + 1) * colWidth}
-                                y={canvasHeight + 20}
-                                transform={`rotate(90, ${(i + 1) * colWidth}, ${canvasHeight + 20})`}
-                                textAnchor="start"
-                                dy="0.35em"
-                                fill={winnerColor}
-                                fontWeight={winnerStartCol ? "bold" : "normal"}
-                                fontSize="14"
-                            >
-                                {prizes[i] || `Prize ${i + 1}`}
-                                {winnerStartCol && assignments[winnerStartCol] ? ` (${assignments[winnerStartCol]})` : ''}
-                            </text>
-                        </g>
-                    );
-                })}
-
-                {/* Bridges (Original) */}
-                {bridges.map((b, i) => (
-                    <line
-                        key={`bridge-${i}`}
-                        x1={(b.col + 1) * colWidth}
-                        y1={b.row * rowHeight}
-                        x2={(b.col + 2) * colWidth}
-                        y2={b.row * rowHeight}
-                        stroke="#444"
-                        strokeWidth="2"
-                        style={{ pointerEvents: 'none' }}
-                    />
-                ))}
-
-                {/* User Added Bridges */}
-                {userBridges.map((b, i) => (
-                    <line
-                        key={`user-bridge-${i}`}
-                        x1={(b.col + 1) * colWidth}
-                        y1={b.row * rowHeight}
-                        x2={(b.col + 2) * colWidth}
-                        y2={b.row * rowHeight}
-                        stroke="#4ECDC4" // Distinct color (Teal)
-                        strokeWidth="3"
-                        strokeDasharray="5,5" // Dashed style
-                        style={{ pointerEvents: 'none' }}
-                    />
-                ))}
-
-                {/* Completed Paths (Traces) */}
-                {Object.entries(completedPaths).map(([idx, { points }]) => (
-                    <polyline
-                        key={`completed-${idx}`}
-                        points={points.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none"
-                        stroke={getPlayerColor(parseInt(idx))}
-                        strokeWidth="3"
-                        strokeOpacity="0.8"
-                    />
-                ))}
-
-                {/* Active Path Animation */}
-                {activePlayer !== null && (
-                    <>
-                        {/* Dynamic Trail */}
-                        <polyline
-                            points={currentTrail.map(p => `${p.x},${p.y} `).join(' ')}
-                            fill="none"
-                            stroke={getPlayerColor(activePlayer)}
-                            strokeWidth="4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        />
-                        {/* Head */}
-                        <circle
-                            cx={currentPos.x}
-                            cy={currentPos.y}
-                            r={8}
-                            fill={getPlayerColor(activePlayer)}
-                            filter={`drop - shadow(0 0 8px ${getPlayerColor(activePlayer)})`}
-                        />
-                    </>
-                )}
-            </svg>
+      <div className="board-scroll" aria-label="鬼腳圖遊戲區">
+        <div className="lane-buttons" style={{ width }}>
+          {Array.from({ length: playerCount }, (_, index) => {
+            const assigned = assignments[index];
+            const completed = completedPaths[index];
+            return (
+              <button
+                type="button"
+                className={`lane-button ${assigned ? 'is-assigned' : ''} ${completed ? 'is-complete' : ''}`}
+                style={{ '--lane-color': getPlayerColor(index), left: (index + 1) * colWidth }}
+                onClick={() => handleLaneClick(index)}
+                disabled={isAnimating && activePlayer !== index}
+                aria-label={assigned ? `${assigned} 的路徑${completed ? '，已完成，可重播' : '，進行中'}` : `選擇第 ${index + 1} 條路`}
+                key={`lane-${index}`}
+              >
+                <span>{index + 1}</span>{assigned && <b>{assigned}</b>}
+              </button>
+            );
+          })}
         </div>
-    );
-};
+
+        <svg ref={svgRef} className="ladder-svg" width={width} height={CANVAS_HEIGHT + 150} viewBox={`0 0 ${width} ${CANVAS_HEIGHT + 150}`} onClick={handleStageClick} role="img" aria-label={`${playerCount} 條路徑的鬼腳圖`}>
+          <g className="base-lines" aria-hidden="true">
+            {Array.from({ length: playerCount }, (_, index) => <line key={`vertical-${index}`} x1={(index + 1) * colWidth} y1="0" x2={(index + 1) * colWidth} y2={CANVAS_HEIGHT} />)}
+            {bridges.map((bridge, index) => <line key={`bridge-${index}`} x1={(bridge.col + 1) * colWidth} y1={bridge.row * rowHeight} x2={(bridge.col + 2) * colWidth} y2={bridge.row * rowHeight} />)}
+          </g>
+
+          <g className="custom-lines" aria-hidden="true">
+            {userBridges.map((bridge, index) => <line key={`custom-${index}`} x1={(bridge.col + 1) * colWidth} y1={bridge.row * rowHeight} x2={(bridge.col + 2) * colWidth} y2={bridge.row * rowHeight} />)}
+          </g>
+
+          <g className="completed-lines" aria-hidden="true">
+            {Object.entries(completedPaths).map(([index, result]) => <polyline key={`done-${index}`} points={result.points.map((point) => `${point.x},${point.y}`).join(' ')} style={{ stroke: getPlayerColor(Number(index)) }} />)}
+          </g>
+
+          {activePlayer !== null && (
+            <g className="active-line" aria-hidden="true" style={{ color: getPlayerColor(activePlayer) }}>
+              <polyline points={trail.map((point) => `${point.x},${point.y}`).join(' ')} />
+              <circle cx={position.x} cy={position.y} r="8" />
+            </g>
+          )}
+
+          <g className="prize-labels" aria-hidden="true">
+            {prizes.map((prize, index) => {
+              const winnerEntry = Object.entries(completedPaths).find(([, result]) => result.endCol === index);
+              const winnerName = winnerEntry ? assignments[winnerEntry[0]] : '';
+              return (
+                <g key={`prize-${index}`} transform={`translate(${(index + 1) * colWidth}, ${CANVAS_HEIGHT + 30})`}>
+                  <circle r="15" /><text y="5" textAnchor="middle" className="prize-number">{index + 1}</text>
+                  <text y="43" textAnchor="middle" className="prize-name">{prize}</text>
+                  {winnerName && <text y="65" textAnchor="middle" className="winner-name">{winnerName}</text>}
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+      </div>
+    </div>
+  );
+}
 
 export default GhostLeg;

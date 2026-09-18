@@ -2,6 +2,28 @@
 
 這是一個全靜態的鬼角圖（Amidakuji）網頁應用程式，使用 React + Vite 建構。
 
+## 產品體驗
+
+- 2–20 位玩家與任務成對設定
+- 隨機產生鬼腳圖、逐人選路與結果動畫
+- 可新增或清除自訂橫線、重播完成路徑
+- 響應式介面、鍵盤焦點與 reduced-motion 支援
+
+## BMAD 設計產物
+
+專案使用 BMAD 6.12.0（Core + BMM），並以繁體中文保存規格、UX 與架構決策：
+
+```text
+_bmad/                         BMAD 工作流與設定
+.agents/skills/                Codex 可用的 BMAD skills
+_bmad-output/specs/            核心規格與 brownfield 分析
+_bmad-output/planning-artifacts/
+  ux-designs/                  DESIGN.md 與 EXPERIENCE.md
+  architecture/                Architecture Spine
+```
+
+目前視覺方向是「紙張遊戲＋螢光筆路徑」。完整產品契約從 `_bmad-output/specs/spec-footprint-bmad-redesign/SPEC.md` 開始閱讀。
+
 ## 線上預覽
 
 [點擊這裡查看 DEMO](https://<YOUR_GITHUB_USERNAME>.github.io/<REPO_NAME>/)
