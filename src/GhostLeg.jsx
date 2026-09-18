@@ -3,10 +3,16 @@ import { calculatePath, getPlayerColor, getPointAlongPath, hasBridgeConflict } f
 
 const CANVAS_HEIGHT = 430;
 const MIN_WIDTH = 600;
+const LANE_WIDTH = 96;
+
+const truncateLabel = (value, maxLength) => {
+  const characters = Array.from(value);
+  return characters.length > maxLength ? `${characters.slice(0, maxLength - 1).join('')}…` : value;
+};
 
 function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChange, onLaneSelect, onFinish }) {
   const { playerCount, bridges, height } = gameData;
-  const width = Math.max(MIN_WIDTH, playerCount * 76);
+  const width = Math.max(MIN_WIDTH, (playerCount + 1) * LANE_WIDTH);
   const colWidth = width / (playerCount + 1);
   const rowHeight = CANVAS_HEIGHT / height;
   const [userBridges, setUserBridges] = useState([]);
@@ -107,7 +113,7 @@ function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChang
         {userBridges.length > 0 && <button type="button" className="text-button" onClick={() => setUserBridges([])} disabled={isAnimating}>清除自訂線 ({userBridges.length})</button>}
       </div>
 
-      <div className="board-scroll" aria-label="鬼腳圖遊戲區">
+      <div className="board-scroll" role="region" tabIndex="0" aria-label="鬼腳圖遊戲區，可左右捲動">
         <div className="lane-buttons" style={{ width }}>
           {Array.from({ length: playerCount }, (_, index) => {
             const assigned = assignments[index];
@@ -116,10 +122,11 @@ function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChang
               <button
                 type="button"
                 className={`lane-button ${assigned ? 'is-assigned' : ''} ${completed ? 'is-complete' : ''}`}
-                style={{ '--lane-color': getPlayerColor(index), left: (index + 1) * colWidth }}
+                style={{ '--lane-color': getPlayerColor(index), '--lane-width': `${Math.min(88, colWidth - 8)}px`, left: (index + 1) * colWidth }}
                 onClick={() => handleLaneClick(index)}
                 disabled={isAnimating && activePlayer !== index}
                 aria-label={assigned ? `${assigned} 的路徑${completed ? '，已完成，可重播' : '，進行中'}` : `選擇第 ${index + 1} 條路`}
+                title={assigned || `第 ${index + 1} 條路`}
                 key={`lane-${index}`}
               >
                 <span>{index + 1}</span>{assigned && <b>{assigned}</b>}
@@ -155,9 +162,10 @@ function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChang
               const winnerName = winnerEntry ? assignments[winnerEntry[0]] : '';
               return (
                 <g key={`prize-${index}`} transform={`translate(${(index + 1) * colWidth}, ${CANVAS_HEIGHT + 30})`}>
+                  <title>{winnerName ? `${winnerName}：${prize}` : prize}</title>
                   <circle r="15" /><text y="5" textAnchor="middle" className="prize-number">{index + 1}</text>
-                  <text y="43" textAnchor="middle" className="prize-name">{prize}</text>
-                  {winnerName && <text y="65" textAnchor="middle" className="winner-name">{winnerName}</text>}
+                  <text y="43" textAnchor="middle" className="prize-name">{truncateLabel(prize, 7)}</text>
+                  {winnerName && <text y="65" textAnchor="middle" className="winner-name">{truncateLabel(winnerName, 7)}</text>}
                 </g>
               );
             })}
