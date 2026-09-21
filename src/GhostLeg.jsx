@@ -102,6 +102,96 @@ function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChang
     if (!hasBridgeConflict(allBridges, candidate, 0)) setUserBridges((current) => [...current, candidate]);
   };
 
+  const exportAsImage = () => {
+    if (!svgRef.current || isAnimating) return;
+
+    const svg = svgRef.current.cloneNode(true);
+    const exportTopPadding = 74;
+    const originalContent = Array.from(svg.childNodes);
+    const contentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    contentGroup.setAttribute('transform', `translate(0 ${exportTopPadding})`);
+    originalContent.forEach((node) => {
+      if (node.nodeName !== 'style') contentGroup.appendChild(node);
+    });
+    svg.appendChild(contentGroup);
+
+    const startGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    assignments && Array.from({ length: playerCount }, (_, index) => {
+      const x = (index + 1) * colWidth;
+      const player = assignments[index];
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', x);
+      circle.setAttribute('cy', 28);
+      circle.setAttribute('r', 17);
+      circle.setAttribute('fill', '#fff1ba');
+      circle.setAttribute('stroke', '#d8cda9');
+      circle.setAttribute('stroke-width', '2');
+      startGroup.appendChild(circle);
+
+      const number = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      number.setAttribute('x', x);
+      number.setAttribute('y', 34);
+      number.setAttribute('text-anchor', 'middle');
+      number.setAttribute('font-family', 'Arial, sans-serif');
+      number.setAttribute('font-size', '17');
+      number.setAttribute('font-weight', '700');
+      number.textContent = String(index + 1);
+      startGroup.appendChild(number);
+
+      if (player) {
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', x);
+        label.setAttribute('y', 62);
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-family', 'Arial, sans-serif');
+        label.setAttribute('font-size', '14');
+        label.setAttribute('font-weight', '700');
+        label.setAttribute('fill', getPlayerColor(index));
+        label.textContent = player;
+        startGroup.appendChild(label);
+      }
+    });
+    svg.insertBefore(startGroup, contentGroup);
+    svg.setAttribute('height', String(CANVAS_HEIGHT + 150 + exportTopPadding));
+    svg.setAttribute('viewBox', `0 0 ${width} ${CANVAS_HEIGHT + 150 + exportTopPadding}`);
+    const styles = Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules).map((rule) => rule.cssText);
+        } catch {
+          return [];
+        }
+      })
+      .join('\n');
+    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = styles;
+    svg.prepend(style);
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svg);
+    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+
+    image.onload = () => {
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = (CANVAS_HEIGHT + 150 + exportTopPadding) * scale;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#fffdf8';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.scale(scale, scale);
+      context.drawImage(image, 0, 0, width, CANVAS_HEIGHT + 150 + exportTopPadding);
+      URL.revokeObjectURL(url);
+
+      const link = document.createElement('a');
+      link.download = 'ghost-leg-result.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    };
+    image.src = url;
+  };
+
   const { position, trail } = activePlayer === null
     ? { position: { x: 0, y: 0 }, trail: [] }
     : getPointAlongPath(path, animationProgress);
@@ -111,6 +201,9 @@ function GhostLeg({ gameData, prizes, assignments, isAnimating, onAnimationChang
       <div className="board-toolbar">
         <div><span className="toolbar-dot" aria-hidden="true" />點兩條直線之間，可以加一條自訂橫線。</div>
         {userBridges.length > 0 && <button type="button" className="text-button" onClick={() => setUserBridges([])} disabled={isAnimating}>清除自訂線 ({userBridges.length})</button>}
+        <button type="button" className="text-button" onClick={exportAsImage} disabled={isAnimating}>
+          匯出結果圖片
+        </button>
       </div>
 
       <div className="board-scroll" role="region" tabIndex="0" aria-label="鬼腳圖遊戲區，可左右捲動">
